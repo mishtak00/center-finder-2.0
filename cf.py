@@ -7,7 +7,7 @@ plt.rc('font', family='serif')
 plt.rc('font', size=16)
 plt.rc('lines', lw=3)
 plt.rc('axes', labelsize=14)
-plt.rc('axes', titlesize=20)
+plt.rc('axes', titlesize=16)
 plt.rc('axes', grid=True)
 plt.rc('grid', ls='dotted')
 plt.rc('xtick', labelsize=10)
@@ -22,6 +22,7 @@ from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.signal import fftconvolve
 from mpl_toolkits.mplot3d import Axes3D
 from argparse import ArgumentParser
+from skimage.feature import blob_dog
 
 
 # load hyperparameters from file
@@ -125,12 +126,12 @@ def kernel(radius, grid_spacing, show_kernel=False):
     return kernel_grid
 
 
-def plot_observed_grid(vote_threshold, voted_centers_xyzs, glxs_crtsn_coords, saveplot=True, savename='plot.png', showplot=False):
+def plot_observed_grid(vote_threshold, voted_centers_xyzs, glxs_crtsn_coords, N_true_centers, saveplot=True, savename='plot.png', showplot=False):
     color = 'cornflowerblue'
     fig, ax = plt.subplots(1, 1, subplot_kw={'projection': '3d'})
-    # ax.scatter(glxs_crtsn_coords[0:8].T[0], glxs_crtsn_coords[0:8].T[1], glxs_crtsn_coords[0:8].T[2], s=200, c='r', marker='x', edgecolor='k', label='True Centers')
     ax.scatter(*voted_centers_xyzs, s=80, c=color, alpha=0.3, marker='.', edgecolor='k', label='Found Centers')
-    ax.scatter(glxs_crtsn_coords[0:83].T[0], glxs_crtsn_coords[0:83].T[1], glxs_crtsn_coords[0:83].T[2], s=150, c='r', marker='x', edgecolor='k', label='True Centers')
+    true_centers = glxs_crtsn_coords[:N_true_centers].T
+    ax.scatter(true_centers[0], true_centers[1], true_centers[2], s=150, c='r', marker='x', edgecolor='k', label='True Centers')
     ax.set_xlabel('$x$ [$h^{-1}$Mpc]')
     ax.set_ylabel('$y$ [$h^{-1}$Mpc]')
     ax.set_zlabel('$z$ [$h^{-1}$Mpc]')
@@ -152,7 +153,8 @@ def single_radius_vote(filename, radius, **kwargs):
 
     # gets the 3d histogram (density_grid) and the grid bin coordintes in cartesian (grid_edges)
     glxs_crtsn_coords = xyzs.T  # each galaxy is represented by (x, y, z)
-    bin_counts_3d = np.array([np.ceil((xyzs[i].max() - xyzs[i].min()) / grid_spacing) for i in range(len(xyzs))], dtype=int)
+    # TODO: fix the outer wall binning out of range issue
+    bin_counts_3d = np.array([np.ceil((xyzs[i].max() - xyzs[i].min()) / grid_spacing) + 1 for i in range(len(xyzs))], dtype=int)
     density_grid, observed_grid_edges = np.histogramdd(glxs_crtsn_coords, bins=bin_counts_3d)
     print('Histogramming completed successfully...')
     print('Density grid shape:', density_grid.shape)
@@ -170,9 +172,9 @@ def single_radius_vote(filename, radius, **kwargs):
 
     # vote_threshold = 60
     # voted_centers_xyzs = (observed_grid_edges[i][np.where(observed_grid >= vote_threshold)[i]] for i in range(len(observed_grid_edges)))
-    # plot_observed_grid(vote_threshold, voted_centers_xyzs, glxs_crtsn_coords, savename=filename.split('.')[0] + '.png')
+    # plot_observed_grid(vote_threshold, voted_centers_xyzs, glxs_crtsn_coords, N_true_centers, savename=filename.split('.')[0] + '.png')
 
-    return observed_grid, observed_grid_edges
+    return observed_grid, observed_grid_edges, glxs_crtsn_coords
 
 
 def alpha_delta_r_projections_from_observed(observed_grid, N_bins_x, N_bins_y, N_bins_z, sky_coords_grid, N_bins_alpha, N_bins_delta, N_bins_r):
@@ -294,19 +296,40 @@ def sample(observed_grid, observed_grid_edges):
     print('Maximum number of expected votes:', expected_grid.max())
     print('Minimum number of expected votes:', expected_grid.min())
 
-    # flat_obs = observed_grid[(observed_grid > 5) & (expected_grid > 5)].flatten()
-    # flat_exp = expected_grid[(observed_grid > 5) & (expected_grid > 5)].flatten()
-    # plt.hist2d(flat_obs, flat_exp, bins=110, range=[[5, 115], [5, 115]])
-    # cb = plt.colorbar()
-    # cb.set_label('Vote Counts')
-    # # plt.scatter(flat_obs, flat_exp)
-    # # x = np.linspace(0, 110, 109)
-    # # plt.plot(x, x, color='black')
-    # plt.xlabel("$N$_${observed}$")
-    # plt.ylabel("$N$_${expected}$")
-    # plt.xlim(0, 150)
-    # plt.ylim(0, 150)
-    # plt.savefig('graphs/exp_vs_obs.jpeg')
+    return expected_grid
+
+
+def blob(observed_grid):
+    blobs_dog = blob_dog(observed_grid)
+    print(blobs_dog)
+    # TODO: why isn't this working at all?
+
+def plot_expected_vs_observed(observed_grid, expected_grid, glxs_crtsn_coords, N_true_centers, lower_bound, upper_bound, diagonal=False, style='density', savename='graphs/exp_vs_obs.jpeg'):
+    flat_obs = np.ravel(observed_grid)
+    flat_exp = np.ravel(expected_grid)
+
+    if style == 'density':
+        plt.hist2d(flat_obs, flat_exp, bins=upper_bound - lower_bound, range=[[lower_bound, upper_bound], [lower_bound, upper_bound]])
+        cb = plt.colorbar()
+        cb.set_label('Aggregate Vote Counts')
+    elif style == 'scatter':
+        plt.scatter(flat_obs, flat_exp)
+
+    if diagonal:
+        x = np.linspace(lower_bound, upper_bound, 100)
+        plt.plot(x, x, color='black')
+
+    plt.xlabel("$N$_${observed}$")
+    plt.ylabel("$N$_${expected}$")
+    plt.title('Number of expected versus observed voters for catalog with {} true centers'.format(N_true_centers))
+
+    # TODO: there's an issue here with the gridding length of the obs and exp grids. sometimes points at the outer wall fall outside the range. solve this.
+    true_centers = glxs_crtsn_coords[:N_true_centers].T
+    true_centers_indices = np.array([[np.ceil((true_centers[i, j] - true_centers[i].min()) / grid_spacing) for j in range(len(true_centers[i]))] for i in range(len(true_centers))], dtype=int).T
+    true_centers_observed_grid = np.array([observed_grid[index_tuple[0], index_tuple[1], index_tuple[2]] for index_tuple in true_centers_indices])
+    true_centers_expected_grid = np.array([expected_grid[index_tuple[0], index_tuple[1], index_tuple[2]] for index_tuple in true_centers_indices])
+    plt.scatter(true_centers_observed_grid, true_centers_expected_grid, marker='*', color='red')
+    plt.savefig(savename)
 
 
 def main():
@@ -318,8 +341,10 @@ def main():
 
     if (args.test_vote is not None):
         # kernel(108, 5, show_kernel=True)
-        observed_grid, observed_grid_edges = single_radius_vote(args.file, args.test_vote)
-        sample(observed_grid, observed_grid_edges)
+        observed_grid, observed_grid_edges, glxs_crtsn_coords = single_radius_vote(args.file, args.test_vote)
+        expected_grid = sample(observed_grid, observed_grid_edges)
+        # plot_expected_vs_observed(observed_grid, expected_grid, glxs_crtsn_coords, 8, 5, 115, diagonal=False, style='density')
+        blob(observed_grid)
 
 
 if __name__ == '__main__':
