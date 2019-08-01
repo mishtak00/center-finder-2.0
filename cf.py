@@ -290,9 +290,14 @@ def project_and_sample(observed_grid: np.ndarray, observed_grid_edges: list, sav
 
 
 def significance(observed_grid: np.ndarray, expected_grid: np.ndarray, save: bool = False, savename: str = 'saves/saved') -> np.ndarray:
-    expected_grid[expected_grid == 0.] = 0.01  # this resolves the division by zero error
+    expected_grid[expected_grid < 5.] = 5.
+    # expected_grid[expected_grid == 0.] = 0.01  # this resolves the division by zero error
     sig_grid = (observed_grid - expected_grid) / np.sqrt(expected_grid)
-    sig_grid[sig_grid < 5.] = 0.  # this prepares the grid for the blobbing procedure, which requires a bright on dark image
+    sig_grid[sig_grid < 5.] = 0.
+    # this prepares the grid for the blobbing procedure, which requires a bright on dark image, the values of the sig grid now run from 0 to 255
+    sig_grid -= sig_grid.min()
+    sig_grid /= (sig_grid.max())
+    sig_grid *= 255
     print('Maximum significance:', sig_grid.max())
     print('Minimum significance:', sig_grid.min())
     if save:
@@ -301,7 +306,7 @@ def significance(observed_grid: np.ndarray, expected_grid: np.ndarray, save: boo
 
 
 def blob(grid: np.ndarray, bin_centers_xyzs: tuple, glxs_crtsn_coords: np.ndarray, save: bool = False, savename: str = 'saves/saved', plot: bool = False) -> (list, tuple):
-    blob_grid_indices = blob_dog(grid, min_sigma=2., max_sigma=50.)
+    blob_grid_indices = blob_dog(grid, min_sigma=2., max_sigma=50.)  # TODO: experiment with overlap
     # print(blobs_indices)
     blob_centers_xyzs = np.array(blob_grid_indices.T, dtype=int)
     blob_centers_xs, blob_centers_ys, blob_centers_zs = blob_centers_xyzs[0], blob_centers_xyzs[1], blob_centers_xyzs[2]
