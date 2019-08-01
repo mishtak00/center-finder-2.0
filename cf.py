@@ -1,32 +1,17 @@
+import os
 import json
 import numpy as np
 from astropy.io import fits
-import matplotlib.pyplot as plt
-plt.rc('figure', figsize=[12, 12])
-plt.rc('font', family='serif')
-plt.rc('font', size=16)
-plt.rc('lines', lw=3)
-plt.rc('axes', labelsize=14)
-plt.rc('axes', titlesize=16)
-plt.rc('axes', grid=True)
-plt.rc('grid', ls='dotted')
-plt.rc('xtick', labelsize=10)
-plt.rc('xtick', top=True)
-plt.rc('xtick.minor', visible=True)
-plt.rc('ytick', labelsize=10)
-plt.rc('ytick', right=True)
-plt.rc('ytick.minor', visible=True)
-plt.rc('savefig', bbox='tight')
 from scipy import integrate
 from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.signal import fftconvolve
-from mpl_toolkits.mplot3d import Axes3D
 from argparse import ArgumentParser
 from skimage.feature import blob_dog
+from plot import *
 
 
 # load hyperparameters from file
-def load_hyperparameters(params_file):
+def load_hyperparameters(params_file: str):
     with open(params_file, 'r') as params:
         hp = json.load(params)
         print(f"Hyperparameters loaded successfully from '{params_file}'...")
@@ -46,7 +31,7 @@ def load_hyperparameters(params_file):
         grid_spacing = hp['grid_spacing']  # Mpc/h
 
 
-def load_data(filename):
+def load_data(filename: str) -> (np.array, np.array, np.array):
     catalog_data = fits.open(filename)[1].data
     ra = catalog_data['ra']
     dec = catalog_data['dec']
@@ -55,11 +40,11 @@ def load_data(filename):
 
 
 # this calculates the transformation from observed redshift to radial distance
-def z2r(z):
+def z2r(z: float) -> float:
     return c_over_H0 * integrate.quad(lambda zeta: (Omega_M * (1 + zeta)**3 + Omega_L)**-0.5, 0, z)[0]
 
 
-def sky2cartesian(ra, dec, redshift):
+def sky2cartesian(ra: np.array, dec: np.array, redshift: np.array) -> np.array:
     # TODO: automate getting the number of spacings instead of setting it to 100
     # this stores quick-lookup tick values for the given range of redshifts
     redshift_ticks = np.linspace(redshift.min(), redshift.max(), 100)
@@ -79,7 +64,7 @@ def sky2cartesian(ra, dec, redshift):
     return np.array([xs, ys, zs])
 
 
-def cartesian2sky(xs, ys, zs):
+def cartesian2sky(xs: np.array, ys: np.array, zs: np.array) -> (np.array, np.array, np.array, np.array):
     radii = (xs ** 2 + ys ** 2 + zs ** 2) ** 0.5
     redshift = np.array(LUT_redshifts(radii))
     dec = np.rad2deg(np.arcsin(zs / radii))
@@ -87,7 +72,7 @@ def cartesian2sky(xs, ys, zs):
     return ra, dec, redshift, radii
 
 
-def kernel(radius, grid_spacing, show_kernel=False):
+def kernel(radius: int, grid_spacing: int, show_kernel: bool = False) -> np.ndarray:
     bao_radius = radius  # Mpc/h
     # this is the number of bins in each dimension axis
     kernel_bin_count = int(np.ceil(2 * bao_radius / grid_spacing))
@@ -126,63 +111,13 @@ def kernel(radius, grid_spacing, show_kernel=False):
     return kernel_grid
 
 
-def plot_observed_grid(vote_threshold, voted_centers_xyzs, glxs_crtsn_coords, N_true_centers, saveplot=True, savename='3d_plot.png', showplot=False):
-    color = 'cornflowerblue'
-    fig, ax = plt.subplots(1, 1, subplot_kw={'projection': '3d'})
-    ax.scatter(*voted_centers_xyzs, s=80, c=color, alpha=0.3, marker='.', edgecolor='k', label='Found Centers')
-    true_centers = glxs_crtsn_coords[:N_true_centers].T
-    ax.scatter(true_centers[0], true_centers[1], true_centers[2], s=150, c='r', marker='x', edgecolor='k', label='True Centers')
-    ax.set_xlabel('$x$ [$h^{-1}$Mpc]')
-    ax.set_ylabel('$y$ [$h^{-1}$Mpc]')
-    ax.set_zlabel('$z$ [$h^{-1}$Mpc]')
-    ax.set_title('True and Found Centers' + '\n' + 'Vote Threshold = ' + str(vote_threshold))
-    ax.legend(loc='best')
-    if saveplot:
-        plt.savefig(savename)
-    if showplot:
-        plt.show()
-
-
-def plot_expected_vs_observed(observed_grid, expected_grid, glxs_crtsn_coords, N_true_centers, lower_bound, upper_bound, diagonal=False, style='density', savename='graphs/exp_vs_obs.jpeg'):
-    flat_obs = np.ravel(observed_grid)
-    flat_exp = np.ravel(expected_grid)
-
-    if style == 'density':
-        # plt.hist2d(flat_obs, flat_exp, bins=upper_bound - lower_bound, range=[[lower_bound, upper_bound], [lower_bound, upper_bound]])
-        plt.hist2d(flat_obs, flat_exp, bins=100, range=[[lower_bound, upper_bound], [lower_bound, upper_bound]])
-        cb = plt.colorbar()
-        cb.set_label('Aggregate Vote Counts')
-    elif style == 'scatter':
-        plt.scatter(flat_obs, flat_exp)
-
-    if diagonal:
-        x = np.linspace(lower_bound, upper_bound, 100)
-        plt.plot(x, x, color='black')
-
-    plt.xlabel("$N$_${observed}$")
-    plt.ylabel("$N$_${expected}$")
-    plt.title('Number of expected versus observed voters for catalog with {} true centers'.format(N_true_centers))
-
-    # TODO: there's an issue here with the gridding length of the obs and exp grids. sometimes points at the outer wall fall outside the range. solve this.
-    # true_centers = glxs_crtsn_coords[:N_true_centers].T
-    # true_centers_indices = np.array([[np.ceil((true_centers[i, j] - true_centers[i].min()) / grid_spacing) for j in range(len(true_centers[i]))] for i in range(len(true_centers))], dtype=int).T
-    # true_centers_observed_grid = np.array([observed_grid[index_tuple[0], index_tuple[1], index_tuple[2]] for index_tuple in true_centers_indices])
-    # true_centers_expected_grid = np.array([expected_grid[index_tuple[0], index_tuple[1], index_tuple[2]] for index_tuple in true_centers_indices])
-    # plt.scatter(true_centers_observed_grid, true_centers_expected_grid, marker='*', color='red')
-    plt.savefig(savename)
-
-
-def single_radius_vote(filename, radius, **kwargs):
-    # TODO: fix the kwargs for showing plots
-    # show_kernel, saveplot, savename = kwargs
-
+def single_radius_vote(filename: str, radius: int, save: bool = False, savename: str = 'saves/saved', plot: bool = False) -> (np.ndarray, list, np.ndarray):
     # gets sky data and transforms them to cartesian
     ra, dec, redshift = load_data(filename)
     xyzs = sky2cartesian(ra, dec, redshift)  # this returns (xs, ys, zs) as a tuple ready for unpacking
 
     # gets the 3d histogram (density_grid) and the grid bin coordintes in cartesian (grid_edges)
     glxs_crtsn_coords = xyzs.T  # each galaxy is represented by (x, y, z)
-    # TODO: fix the outer wall binning out of range issue
     bin_counts_3d = np.array([np.ceil((xyzs[i].max() - xyzs[i].min()) / grid_spacing) for i in range(len(xyzs))], dtype=int)
     density_grid, observed_grid_edges = np.histogramdd(glxs_crtsn_coords, bins=bin_counts_3d)
     print('Histogramming completed successfully...')
@@ -199,17 +134,25 @@ def single_radius_vote(filename, radius, **kwargs):
     print('Maximum number of voters per single bin:', observed_grid.max())
     print('Minimum number of voters per single bin:', observed_grid.min())
 
-    # vote_threshold = 60
-    # voted_centers_xyzs = (observed_grid_edges[i][np.where(observed_grid >= vote_threshold)[i]] for i in range(len(observed_grid_edges)))
-    # plot_observed_grid(vote_threshold, voted_centers_xyzs, glxs_crtsn_coords, N_true_centers, savename=filename.split('.')[0] + '.png')
+    if save:
+        try:
+            os.mkdir('saves')
+        except FileExistsError:
+            pass
+        np.save(savename + "_obs_grid.npy", observed_grid)
+
+    if plot:
+        vote_threshold = 60
+        voted_centers_xyzs = (observed_grid_edges[i][np.where(observed_grid >= vote_threshold)[i]] for i in range(len(observed_grid_edges)))
+        plot_grid_with_true_centers(vote_threshold, voted_centers_xyzs, glxs_crtsn_coords, N_true_centers, savename=filename.split('.')[0] + '.png')
 
     return observed_grid, observed_grid_edges, glxs_crtsn_coords
 
 
-def alpha_delta_r_projections_from_observed(observed_grid, N_bins_x, N_bins_y, N_bins_z, sky_coords_grid, N_bins_alpha, N_bins_delta, N_bins_r):
+def alpha_delta_r_projections_from_observed(observed_grid: np.ndarray, N_bins_x: int, N_bins_y: int, N_bins_z: int, sky_coords_grid: np.ndarray, N_bins_alpha: int, N_bins_delta: int, N_bins_r: int) -> (np.ndarray, np.ndarray):
     alpha_delta_grid = np.zeros((N_bins_alpha, N_bins_delta))
     r_grid = np.zeros((N_bins_r,))
-    # TODO: np.vectorize()
+    # TODO: np.vectorize(); actually the docs say that the method is just for convenience and that the implementation is basically a for loop, hmmm...
     for i in range(N_bins_x):
         for j in range(N_bins_y):
             for k in range(N_bins_z):
@@ -218,19 +161,25 @@ def alpha_delta_r_projections_from_observed(observed_grid, N_bins_x, N_bins_y, N
     return alpha_delta_grid, r_grid
 
 
-def sample(observed_grid, observed_grid_edges, save=False, savename='saves/saved'):
-    bin_centers_xs, bin_centers_ys, bin_centers_zs = np.array([(observed_grid_edges[i][:-1] + observed_grid_edges[i][1:]) / 2 for i in range(len(observed_grid_edges))])
+# TODO: figure out a faster way to do the projection.
+# def alpha_delta_r_projections_from_observed(observed_grid, N_bins_x, N_bins_y, N_bins_z, sky_coords_grid, N_bins_alpha, N_bins_delta, N_bins_r):
+#     alpha_delta_grid = np.zeros((N_bins_alpha, N_bins_delta))
+#     r_grid = np.zeros((N_bins_r,))
+#     # TODO: np.vectorize()
+#     alpha_delta_grid[sky_coords_grid[:, :, :, 0].astype(int), sky_coords_grid[:, :, :, 1].astype(int)] += observed_grid[:, :, :]
+#     r_grid[sky_coords_grid[:, :, :, 2].astype(int)] += observed_grid[:, :, :]
+#     return alpha_delta_grid, r_grid
+
+
+def project_and_sample(observed_grid: np.ndarray, observed_grid_edges: list, save: bool = False, savename: str = 'saves/saved') -> (np.ndarray, tuple):
+    bin_centers_edges_xs, bin_centers_edges_ys, bin_centers_edges_zs = np.array([(observed_grid_edges[i][:-1] + observed_grid_edges[i][1:]) / 2 for i in range(len(observed_grid_edges))])
     # print(bin_centers_xs, bin_centers_ys, bin_centers_zs)
     if save:
-        try:
-            os.mkdir('saves')
-        except FileExistsError:
-            pass
-        np.save(savename + '_xbins.npy', bin_centers_xs)
-        np.save(savename + '_ybins.npy', bin_centers_ys)
-        np.save(savename + '_zbins.npy', bin_centers_zs)
+        np.save(savename + '_xbins.npy', bin_centers_edges_xs)
+        np.save(savename + '_ybins.npy', bin_centers_edges_ys)
+        np.save(savename + '_zbins.npy', bin_centers_edges_zs)
     # return bin_centers_xs, bin_centers_ys, bin_centers_zs
-    bin_centers_xs, bin_centers_ys, bin_centers_zs = np.array([(x, y, z) for x in bin_centers_xs for y in bin_centers_ys for z in bin_centers_zs]).T
+    bin_centers_xs, bin_centers_ys, bin_centers_zs = np.array([(x, y, z) for x in bin_centers_edges_xs for y in bin_centers_edges_ys for z in bin_centers_edges_zs]).T
     print('Number of bin centers in cartesian coordinates:', len(bin_centers_xs))
     """
     Why can we be sure that it is okay to interpolate the radii and redshift values for these bin centers coordinates?
@@ -247,7 +196,6 @@ def sample(observed_grid, observed_grid_edges, save=False, savename='saves/saved
     print('Total number of votes:', N_tot)
 
     # angular volume adjustment calculations
-    # NOTE: the N_bins need a last bin because the points at the outermost wall will be out of bounds otherwise
 
     # radius
     mid_r = (bin_centers_radii.max() + bin_centers_radii.min()) / 2
@@ -292,17 +240,14 @@ def sample(observed_grid, observed_grid_edges, save=False, savename='saves/saved
     d_delta = np.rad2deg(d_delta)
     r_min = bin_centers_radii.min()
 
-    # TODO: fix the indexing here
     # vectorial computation of the sky indices
     sky_coords_grid[:, :, :, 0] = (sky_coords_grid[:, :, :, 0] - alpha_min) // d_alpha
     sky_coords_grid[:, :, :, 0][sky_coords_grid[:, :, :, 0] == N_bins_alpha] = N_bins_alpha - 1
-    print('Maximum alpha bin:', sky_coords_grid[:, :, :, 0].max())
     sky_coords_grid[:, :, :, 1] = (sky_coords_grid[:, :, :, 1] - delta_min) // d_delta
     sky_coords_grid[:, :, :, 1][sky_coords_grid[:, :, :, 1] == N_bins_delta] = N_bins_delta - 1
-    print('Maximum delta bin:', sky_coords_grid[:, :, :, 1].max())
     sky_coords_grid[:, :, :, 2] = (sky_coords_grid[:, :, :, 2] - r_min) // d_r
     sky_coords_grid[:, :, :, 2][sky_coords_grid[:, :, :, 2] == N_bins_r] = N_bins_r - 1
-    print('Maximum r bin:', sky_coords_grid[:, :, :, 2].max())
+
     alpha_delta_grid, r_grid = alpha_delta_r_projections_from_observed(observed_grid, N_bins_x, N_bins_y, N_bins_z, sky_coords_grid, N_bins_alpha, N_bins_delta, N_bins_r)
     print('Shape of alpha-delta grid:', alpha_delta_grid.shape)
     print('Shape of r grid:', r_grid.shape)
@@ -339,60 +284,61 @@ def sample(observed_grid, observed_grid_edges, save=False, savename='saves/saved
     print('Minimum number of expected votes:', expected_grid.min())
 
     if save:
-        np.save(savename + "_obs_grid.npy", observed_grid)
         np.save(savename + "_exp_grid.npy", expected_grid)
 
-    return expected_grid
+    return expected_grid, (bin_centers_edges_xs, bin_centers_edges_ys, bin_centers_edges_zs)
 
 
-def blob(observed_grid):
-    blobs_dog = blob_dog(observed_grid, min_sigma=3., max_sigma=15., threshold=4)
-    # print(blobs_dog)
-    # TODO: why isn't this working at all?
-    return blobs_dog
+def significance(observed_grid: np.ndarray, expected_grid: np.ndarray, save: bool = False, savename: str = 'saves/saved') -> np.ndarray:
+    expected_grid[expected_grid == 0.] = 0.01  # this resolves the division by zero error
+    sig_grid = (observed_grid - expected_grid) / np.sqrt(expected_grid)
+    sig_grid[sig_grid < 5.] = 0.  # this prepares the grid for the blobbing procedure, which requires a bright on dark image
+    print('Maximum significance:', sig_grid.max())
+    print('Minimum significance:', sig_grid.min())
+    if save:
+        np.save(savename + '_sig_grid.npy', sig_grid)
+    return sig_grid
 
 
-'''
-# TODO: Integrate the blobs
-We want a grid with shape of observed grid that has spheres of 1's centered at each found blob. this is needed in order to convolve with the blobbed observed
-# grid in order to get the integrated vote value around each blob in the observed grid.
+def blob(grid: np.ndarray, bin_centers_xyzs: tuple, glxs_crtsn_coords: np.ndarray, save: bool = False, savename: str = 'saves/saved', plot: bool = False) -> (list, tuple):
+    blob_grid_indices = blob_dog(grid, min_sigma=2., max_sigma=50.)
+    # print(blobs_indices)
+    blob_centers_xyzs = np.array(blob_grid_indices.T, dtype=int)
+    blob_centers_xs, blob_centers_ys, blob_centers_zs = blob_centers_xyzs[0], blob_centers_xyzs[1], blob_centers_xyzs[2]
+    bin_centers_xs, bin_centers_ys, bin_centers_zs = bin_centers_xyzs[0], bin_centers_xyzs[1], bin_centers_xyzs[2]
+    blob_centers_xs = bin_centers_xs[blob_centers_xs]
+    blob_centers_ys = bin_centers_ys[blob_centers_ys]
+    blob_centers_zs = bin_centers_zs[blob_centers_zs]
+    blob_centers_xyzs = blob_centers_xs, blob_centers_ys, blob_centers_zs
+    if plot:
+        plot_grid_with_true_centers(0, blob_centers_xyzs, glxs_crtsn_coords, 83, showplot=True)
+    if save:
+        np.save(savename + '_blob_grid_indices.npy', blob_grid_indices)
+        np.save(savename + '_blob_centers_xyzs.npy', blob_centers_xyzs)
+    return blob_grid_indices, blob_centers_xyzs
 
 
-# TODO: Evaluation
-After blobbing, we want to find how many blobs were within a max threshold distance (18 Mpc). Put these blobs into true_blobs category, the others are fake.
-Another next step is a finer jittering around true blobs.
-'''
-
-'''
-		ARCHIVE
-        # bin_centers_xs, bin_centers_ys, bin_centers_zs = sample(observed_grid, observed_grid_edges)
-        # # plot_expected_vs_observed(observed_grid, expected_grid, glxs_crtsn_coords, 667, 5, 525, diagonal=False, style='density')
-        # blobs = blob(np.array(observed_grid, dtype=float))
-        # blob_centers_xyzs = np.array(blobs.T, dtype=int)  # this returns the blobs' grid indices, the multiplication by 5 turns them into cart coords
-        # blob_centers_xs, blob_centers_ys, blob_centers_zs = blob_centers_xyzs[0], blob_centers_xyzs[1], blob_centers_xyzs[2]
-        # # print(observed_grid_edges[0].min(), observed_grid_edges[1].min(), observed_grid_edges[2].min())
-        # # blob_centers_xyzs = [(bin_centers_xyzs[0][int(blob_centers_xyzs[i, 0])], bin_centers_xyzs[1][int(blob_centers_xyzs[i, 1])], bin_centers_xyzs[2][int(blob_centers_xyzs[i, 2])]) for i in range(len(blob_centers_xyzs))].T
-
-        # blob_centers_xs = bin_centers_xs[blob_centers_xs]
-        # blob_centers_ys = bin_centers_ys[blob_centers_ys]
-        # blob_centers_zs = bin_centers_zs[blob_centers_zs]
-        # blob_centers_xyzs = blob_centers_xs, blob_centers_ys, blob_centers_zs
-        # plot_observed_grid(0, blob_centers_xyzs, glxs_crtsn_coords, 83, showplot=True)
-'''
+# TODO: IMPLEMENT
+# def refine_grid(blob_indices, observed_grid):
+#     return #what?
 
 
 def main():
     parser = ArgumentParser(description="( * ) Center Finder ( * )")
     parser.add_argument('file', metavar='DATA_FILE', type=str, help='Name of fits file to be fitted.')
-    parser.add_argument('-t', '--test', type=int, default=None, help='If this argument is present, testing will occur.')
+    parser.add_argument('-t', '--test', type=int, default=None, help='If this argument is present, testing will occur at radius entered as argument.')
     parser.add_argument('-p', '--params_file', type=str, default='params.json', help='If this argument is present, the cosmological parameters will be uploaded from given file instead of the default.')
+    parser.add_argument('-s', '--save', action='store_true', help='If this argument is present, the x, y and z bin centers will be saved in the "saves" folder along with the observed, expected and significance grids.')
     args = parser.parse_args()
-    load_hyperparameters(args.params_file)
 
     if (args.test is not None):
+        load_hyperparameters(args.params_file)
         # kernel(108, 5, show_kernel=True)
-        observed_grid, observed_grid_edges, glxs_crtsn_coords = single_radius_vote(args.file, args.test)
-        expected_grid = sample(observed_grid, observed_grid_edges)
+        savename_ = 'saves/' + args.file.split('.')[0]
+        observed_grid, observed_grid_edges, glxs_crtsn_coords = single_radius_vote(args.file, args.test, save=args.save, savename=savename_)
+        expected_grid, bin_centers_edges = project_and_sample(observed_grid, observed_grid_edges, save=args.save, savename=savename_)
+        significance_grid = significance(observed_grid, expected_grid, save=args.save, savename=savename_)
+        blob_grid_indices, blob_centers_xyzs = blob(significance_grid, bin_centers_edges, glxs_crtsn_coords, save=args.save, savename=savename_)
 
 
 if __name__ == '__main__':
