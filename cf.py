@@ -72,8 +72,7 @@ def cartesian2sky(xs: np.array, ys: np.array, zs: np.array) -> (np.array, np.arr
     return ra, dec, redshift, radii
 
 
-def kernel(radius: int, grid_spacing: int, show_kernel: bool = False) -> np.ndarray:
-    bao_radius = radius  # Mpc/h
+def kernel(bao_radius: int, grid_spacing: int, additional_thickness=0, show_kernel: bool = False) -> np.ndarray:
     # this is the number of bins in each dimension axis
     kernel_bin_count = int(np.ceil(2 * bao_radius / grid_spacing))
 
@@ -88,8 +87,8 @@ def kernel(radius: int, grid_spacing: int, show_kernel: bool = False) -> np.ndar
 
     # this is where the magic happens: each bin at a radial distance of bao_radius from the
     # kernel's center gets assigned a 1 and all other bins get a 0
-    kernel_grid = np.array([[[1 if (np.linalg.norm(np.array([i, j, k]) - kernel_center) >= inscribed_r_idx_units_floor
-                                    and np.linalg.norm(np.array([i, j, k]) - kernel_center) < inscribed_r_idx_units_ceil)
+    kernel_grid = np.array([[[1 if (np.linalg.norm(np.array([i, j, k]) - kernel_center) >= inscribed_r_idx_units_floor - additional_thickness
+                                    and np.linalg.norm(np.array([i, j, k]) - kernel_center) < inscribed_r_idx_units_ceil + additional_thickness)
                               else 0
                               for i in range(kernel_bin_count)]
                              for j in range(kernel_bin_count)]
@@ -117,9 +116,9 @@ def single_radius_vote(filename: str, radius: int, save: bool = False, savename:
     xyzs = sky2cartesian(ra, dec, redshift)  # this returns (xs, ys, zs) as a tuple ready for unpacking
 
     # gets the 3d histogram (density_grid) and the grid bin coordintes in cartesian (grid_edges)
-    glxs_crtsn_coords = xyzs.T  # each galaxy is represented by (x, y, z)
+    galaxies_cartesian_coords = xyzs.T  # each galaxy is represented by (x, y, z)
     bin_counts_3d = np.array([np.ceil((xyzs[i].max() - xyzs[i].min()) / grid_spacing) for i in range(len(xyzs))], dtype=int)
-    density_grid, observed_grid_edges = np.histogramdd(glxs_crtsn_coords, bins=bin_counts_3d)
+    density_grid, observed_grid_edges = np.histogramdd(galaxies_cartesian_coords, bins=bin_counts_3d)
     print('Histogramming completed successfully...')
     print('Density grid shape:', density_grid.shape)
 
@@ -142,11 +141,11 @@ def single_radius_vote(filename: str, radius: int, save: bool = False, savename:
         np.save(savename + "_obs_grid.npy", observed_grid)
 
     if plot:
-        vote_threshold = 60
-        voted_centers_xyzs = (observed_grid_edges[i][np.where(observed_grid >= vote_threshold)[i]] for i in range(len(observed_grid_edges)))
-        plot_grid_with_true_centers(vote_threshold, voted_centers_xyzs, glxs_crtsn_coords, N_true_centers, savename=filename.split('.')[0] + '.png')
+        vote_threshold_ = 60
+        voted_centers_coords = (observed_grid_edges[i][np.where(observed_grid >= vote_threshold_)[i]] for i in range(len(observed_grid_edges)))
+        plot_grid_with_true_centers(voted_centers_coords, galaxies_cartesian_coords, N_true_centers, vote_threshold=vote_threshold_, savename=filename.split('.')[0] + '.png')
 
-    return observed_grid, observed_grid_edges, glxs_crtsn_coords
+    return observed_grid, observed_grid_edges, galaxies_cartesian_coords
 
 
 def alpha_delta_r_projections_from_observed(observed_grid: np.ndarray, N_bins_x: int, N_bins_y: int, N_bins_z: int, sky_coords_grid: np.ndarray, N_bins_alpha: int, N_bins_delta: int, N_bins_r: int) -> (np.ndarray, np.ndarray):
@@ -289,6 +288,7 @@ def project_and_sample(observed_grid: np.ndarray, observed_grid_edges: list, sav
     return expected_grid, (bin_centers_edges_xs, bin_centers_edges_ys, bin_centers_edges_zs)
 
 
+# TODO: the expected grid and sig grid threshold should be dealt with
 def significance(observed_grid: np.ndarray, expected_grid: np.ndarray, save: bool = False, savename: str = 'saves/saved') -> np.ndarray:
     expected_grid[expected_grid < 5.] = 5.
     # expected_grid[expected_grid == 0.] = 0.01  # this resolves the division by zero error
@@ -305,7 +305,7 @@ def significance(observed_grid: np.ndarray, expected_grid: np.ndarray, save: boo
     return sig_grid
 
 
-def blob(grid: np.ndarray, bin_centers_xyzs: tuple, glxs_crtsn_coords: np.ndarray, save: bool = False, savename: str = 'saves/saved', plot: bool = False) -> (list, tuple):
+def blob(grid: np.ndarray, bin_centers_xyzs: tuple, galaxies_cartesian_coords: np.ndarray, save: bool = False, savename: str = 'saves/saved', plot: bool = False) -> (list, np.ndarray):
     blob_grid_indices = blob_dog(grid, min_sigma=2., max_sigma=50.)  # TODO: experiment with overlap
     # print(blobs_indices)
     blob_centers_xyzs = np.array(blob_grid_indices.T, dtype=int)
@@ -316,16 +316,38 @@ def blob(grid: np.ndarray, bin_centers_xyzs: tuple, glxs_crtsn_coords: np.ndarra
     blob_centers_zs = bin_centers_zs[blob_centers_zs]
     blob_centers_xyzs = blob_centers_xs, blob_centers_ys, blob_centers_zs
     if plot:
-        plot_grid_with_true_centers(0, blob_centers_xyzs, glxs_crtsn_coords, 83, showplot=True)
+        plot_grid_with_true_centers(blob_centers_xyzs, galaxies_cartesian_coords, 83, showplot=True)
     if save:
         np.save(savename + '_blob_grid_indices.npy', blob_grid_indices)
         np.save(savename + '_blob_centers_xyzs.npy', blob_centers_xyzs)
-    return blob_grid_indices, blob_centers_xyzs
+    return blob_grid_indices, np.array(blob_centers_xyzs).T
 
 
 # TODO: IMPLEMENT
-# def refine_grid(blob_indices, observed_grid):
-#     return #what?
+def refine_grid(blob_cartesian_coords, galaxies_cartesian_coords, radius, padding=50):
+    finer_grid_spacing = 2  # Mpc/h
+    finer_coords = []
+    grid_length = radius + padding
+    N_bins = int(np.ceil(2 * grid_length / finer_grid_spacing))
+    finer_kernel_grid = kernel(radius, finer_grid_spacing, additional_thickness=1)
+    for blob_x, blob_y, blob_z in blob_cartesian_coords:
+        x_bound_lower, x_bound_upper = blob_x - grid_length, blob_x + grid_length
+        y_bound_lower, y_bound_upper = blob_y - grid_length, blob_y + grid_length
+        z_bound_lower, z_bound_upper = blob_z - grid_length, blob_z + grid_length
+        range_ = ((x_bound_lower, x_bound_upper), (y_bound_lower, y_bound_upper), (z_bound_lower, z_bound_upper))
+        finer_density_grid, finer_observed_grid_edges = np.histogramdd(galaxies_cartesian_coords, range=range_, bins=N_bins)
+        finer_observed_grid = np.round(fftconvolve(finer_density_grid, finer_kernel_grid, mode='same'))
+
+        vote_threshold_ = 60
+        voted_centers_coords = np.array([finer_observed_grid_edges[i][np.where(finer_observed_grid >= vote_threshold_)[i]] for i in range(len(finer_observed_grid_edges))])
+        finer_coords.extend(voted_centers_coords.T)
+
+    finer_coords = np.array(finer_coords).T
+    print(finer_coords)
+    print(finer_coords.shape)
+    plot_grid_with_true_centers(finer_coords, galaxies_cartesian_coords, 83, showplot=True)
+
+    # implement whole procedure
 
 
 def main():
@@ -338,12 +360,13 @@ def main():
 
     if (args.test is not None):
         load_hyperparameters(args.params_file)
-        # kernel(108, 5, show_kernel=True)
         savename_ = 'saves/' + args.file.split('.')[0]
-        observed_grid, observed_grid_edges, glxs_crtsn_coords = single_radius_vote(args.file, args.test, save=args.save, savename=savename_)
+        bao_radius = args.test
+        observed_grid, observed_grid_edges, galaxies_cartesian_coords = single_radius_vote(args.file, bao_radius, save=args.save, savename=savename_)
         expected_grid, bin_centers_edges = project_and_sample(observed_grid, observed_grid_edges, save=args.save, savename=savename_)
         significance_grid = significance(observed_grid, expected_grid, save=args.save, savename=savename_)
-        blob_grid_indices, blob_centers_xyzs = blob(significance_grid, bin_centers_edges, glxs_crtsn_coords, save=args.save, savename=savename_)
+        blob_grid_indices, blob_cartesian_coords = blob(significance_grid, bin_centers_edges, galaxies_cartesian_coords, save=args.save, savename=savename_)
+        refine_grid(blob_cartesian_coords, galaxies_cartesian_coords, bao_radius)
 
 
 if __name__ == '__main__':
