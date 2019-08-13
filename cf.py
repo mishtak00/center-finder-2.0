@@ -170,32 +170,36 @@ def alpha_delta_r_projections_from_observed(observed_grid: np.ndarray, N_bins_x:
 #     return alpha_delta_grid, r_grid
 
 
-def project_and_sample(observed_grid: np.ndarray, observed_grid_edges: list, save: bool = False, savename: str = 'saves/saved') -> (np.ndarray, tuple):
+def project_and_sample(observed_grid: np.ndarray, observed_grid_edges: list, refined_grid_spacing: int = None, save: bool = False, savename: str = 'saves/saved') -> (np.ndarray, tuple):
     bin_centers_edges_xs, bin_centers_edges_ys, bin_centers_edges_zs = np.array([(observed_grid_edges[i][:-1] + observed_grid_edges[i][1:]) / 2 for i in range(len(observed_grid_edges))])
-    # print(bin_centers_xs, bin_centers_ys, bin_centers_zs)
+
     if save:
         np.save(savename + '_xbins.npy', bin_centers_edges_xs)
         np.save(savename + '_ybins.npy', bin_centers_edges_ys)
         np.save(savename + '_zbins.npy', bin_centers_edges_zs)
-    # return bin_centers_xs, bin_centers_ys, bin_centers_zs
+
     bin_centers_xs, bin_centers_ys, bin_centers_zs = np.array([(x, y, z) for x in bin_centers_edges_xs for y in bin_centers_edges_ys for z in bin_centers_edges_zs]).T
     print('Number of bin centers in cartesian coordinates:', len(bin_centers_xs))
     """
-    Why can we be sure that it is okay to interpolate the radii and redshift values for these bin centers coordinates?
-    Because we know that the range of values of the bin centers is exactly in between the min and the max of the grid bin edges x, y, z.
-    The radii come from the 3d euclidian distance, which preserves this relationship (convex function of x,y,z), and thus it is fine
-    to use the beforehand-calculated interpolation lookup table to find the redshifts from the radii.
-    """
+	Why can we be sure that it is okay to interpolate the radii and redshift values for these bin centers coordinates?
+	Because we know that the range of values of the bin centers is exactly in between the min and the max of the grid bin edges x, y, z.
+	The radii come from the 3d euclidian distance, which preserves this relationship (convex function of x,y,z), and thus it is fine
+	to use the beforehand-calculated interpolation lookup table to find the redshifts from the radii.
+	"""
     bin_centers_ra, bin_centers_dec, bin_centers_redshift, bin_centers_radii = cartesian2sky(bin_centers_xs, bin_centers_ys, bin_centers_zs)
-    # print(bin_centers_ra, bin_centers_dec, bin_centers_redshift, bin_centers_radii)
+
     print('Number of bin centers in sky coordinates:', len(bin_centers_ra))
 
     # total number of votes
     N_tot = np.sum(observed_grid)
     print('Total number of votes:', N_tot)
 
-    # angular volume adjustment calculations
+    # resetting the grid_spacing to the refined_grid_spacing for use by the refined grid procedure
+    if refined_grid_spacing is not None:
+        global grid_spacing
+        grid_spacing = refined_grid_spacing
 
+    # angular volume adjustment calculations
     # radius
     mid_r = (bin_centers_radii.max() + bin_centers_radii.min()) / 2
     delta_r = bin_centers_radii.max() - bin_centers_radii.min()
@@ -289,12 +293,12 @@ def project_and_sample(observed_grid: np.ndarray, observed_grid_edges: list, sav
 
 
 # TODO: the expected grid and sig grid threshold should be dealt with
-def significance(observed_grid: np.ndarray, expected_grid: np.ndarray, save: bool = False, savename: str = 'saves/saved') -> np.ndarray:
-    expected_grid[expected_grid < 5.] = 5.
+def significance(observed_grid: np.ndarray, expected_grid: np.ndarray, expected_votes_threshold: float = 5., significance_threshold: float = 5., save: bool = False, savename: str = 'saves/saved') -> np.ndarray:
+    expected_grid[expected_grid < expected_votes_threshold] = expected_votes_threshold
     # expected_grid[expected_grid == 0.] = 0.01  # this resolves the division by zero error
     sig_grid = (observed_grid - expected_grid) / np.sqrt(expected_grid)
-    sig_grid[sig_grid < 5.] = 0.
-    # this prepares the grid for the blobbing procedure, which requires a bright on dark image, the values of the sig grid now run from 0 to 255
+    sig_grid[sig_grid < significance_threshold] = 0.
+    # this prepares the grid for the blobbing procedure, which requires a bright on dark image in grayscale, the values of the sig grid now run from 0 to 255
     sig_grid -= sig_grid.min()
     sig_grid /= (sig_grid.max())
     sig_grid *= 255
@@ -305,8 +309,8 @@ def significance(observed_grid: np.ndarray, expected_grid: np.ndarray, save: boo
     return sig_grid
 
 
-def blob(grid: np.ndarray, bin_centers_xyzs: tuple, galaxies_cartesian_coords: np.ndarray, save: bool = False, savename: str = 'saves/saved', plot: bool = False) -> (list, np.ndarray):
-    blob_grid_indices = blob_dog(grid, min_sigma=2., max_sigma=50.)  # TODO: experiment with overlap
+def blob(grid: np.ndarray, bin_centers_xyzs: tuple, galaxies_cartesian_coords: np.ndarray, min_sigma_: float = 10., max_sigma_: float = 50., overlap_: float = 0.05, save: bool = False, savename: str = 'saves/saved', plot: bool = False) -> (list, np.ndarray):
+    blob_grid_indices = blob_dog(grid, min_sigma=min_sigma_, max_sigma=max_sigma_, overlap=overlap_)  # TODO: experiment with overlap
     # print(blobs_indices)
     blob_centers_xyzs = np.array(blob_grid_indices.T, dtype=int)
     blob_centers_xs, blob_centers_ys, blob_centers_zs = blob_centers_xyzs[0], blob_centers_xyzs[1], blob_centers_xyzs[2]
@@ -323,14 +327,14 @@ def blob(grid: np.ndarray, bin_centers_xyzs: tuple, galaxies_cartesian_coords: n
     return blob_grid_indices, np.array(blob_centers_xyzs).T
 
 
-# TODO: IMPLEMENT
-def refine_grid(blob_cartesian_coords, galaxies_cartesian_coords, radius, padding=50):
-    finer_grid_spacing = 2  # Mpc/h
+def refine_grid(blob_cartesian_coords, galaxies_cartesian_coords, radius, padding=5, finer_grid_spacing=2):
     finer_coords = []
     grid_length = radius + padding
     N_bins = int(np.ceil(2 * grid_length / finer_grid_spacing))
     finer_kernel_grid = kernel(radius, finer_grid_spacing, additional_thickness=1)
     for blob_x, blob_y, blob_z in blob_cartesian_coords:
+
+        # voting procedure
         x_bound_lower, x_bound_upper = blob_x - grid_length, blob_x + grid_length
         y_bound_lower, y_bound_upper = blob_y - grid_length, blob_y + grid_length
         z_bound_lower, z_bound_upper = blob_z - grid_length, blob_z + grid_length
@@ -338,16 +342,24 @@ def refine_grid(blob_cartesian_coords, galaxies_cartesian_coords, radius, paddin
         finer_density_grid, finer_observed_grid_edges = np.histogramdd(galaxies_cartesian_coords, range=range_, bins=N_bins)
         finer_observed_grid = np.round(fftconvolve(finer_density_grid, finer_kernel_grid, mode='same'))
 
-        vote_threshold_ = 60
-        voted_centers_coords = np.array([finer_observed_grid_edges[i][np.where(finer_observed_grid >= vote_threshold_)[i]] for i in range(len(finer_observed_grid_edges))])
-        finer_coords.extend(voted_centers_coords.T)
+        # projection and sampling procedure
+        finer_expected_grid, finer_bin_centers_edges = project_and_sample(finer_observed_grid, finer_observed_grid_edges, refined_grid_spacing=finer_grid_spacing)
+
+        # significance grid and blobbing procedure
+        finer_significance_grid = significance(finer_observed_grid, finer_expected_grid)
+        blob_grid_indices, blob_cartesian_coords = blob(finer_significance_grid, finer_bin_centers_edges, galaxies_cartesian_coords)
+
+        # grab highest significance blob
+        if len(blob_grid_indices) > 0:
+            blob_grid_indices = blob_grid_indices.astype(int)
+            max_significance_blob = np.array([finer_significance_grid[blob[0], blob[1], blob[2]] for blob in blob_grid_indices])
+            print('Maximum significance blob index:', np.argmax(max_significance_blob))
+            finer_coords.append(blob_cartesian_coords[np.argmax(max_significance_blob)])
 
     finer_coords = np.array(finer_coords).T
     print(finer_coords)
     print(finer_coords.shape)
     plot_grid_with_true_centers(finer_coords, galaxies_cartesian_coords, 83, showplot=True)
-
-    # implement whole procedure
 
 
 def main():
@@ -365,7 +377,7 @@ def main():
         observed_grid, observed_grid_edges, galaxies_cartesian_coords = single_radius_vote(args.file, bao_radius, save=args.save, savename=savename_)
         expected_grid, bin_centers_edges = project_and_sample(observed_grid, observed_grid_edges, save=args.save, savename=savename_)
         significance_grid = significance(observed_grid, expected_grid, save=args.save, savename=savename_)
-        blob_grid_indices, blob_cartesian_coords = blob(significance_grid, bin_centers_edges, galaxies_cartesian_coords, save=args.save, savename=savename_)
+        blob_grid_indices, blob_cartesian_coords = blob(significance_grid, bin_centers_edges, galaxies_cartesian_coords, min_sigma_=2., max_sigma_=30., overlap_=0.05, save=args.save, savename=savename_)
         refine_grid(blob_cartesian_coords, galaxies_cartesian_coords, bao_radius)
 
 

@@ -18,11 +18,10 @@ from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 
 
-def plot_grid_with_true_centers(vote_threshold, voted_centers_xyzs, glxs_crtsn_coords, N_true_centers, saveplot=True, savename='3d_plot.png', showplot=False):
-    # color = 'cornflowerblue'
+def plot_grid_with_true_centers(voted_centers_xyzs, galaxies_cartesian_coords, N_true_centers, vote_threshold=0, saveplot=True, savename='3d_plot.png', showplot=False):
     fig, ax = plt.subplots(1, 1, subplot_kw={'projection': '3d'})
-    ax.scatter(*voted_centers_xyzs, s=80, alpha=0.3, marker='.', edgecolor='k', label='Found Centers')
-    true_centers = glxs_crtsn_coords[:N_true_centers].T
+    ax.scatter(*voted_centers_xyzs, s=80, alpha=0.7, marker='.', edgecolor='k', label='Found Centers', c='b')
+    true_centers = galaxies_cartesian_coords[:N_true_centers].T
     ax.scatter(true_centers[0], true_centers[1], true_centers[2], s=150, c='r', marker='x', edgecolor='k', label='True Centers')
     ax.set_xlabel('$x$ [$h^{-1}$Mpc]')
     ax.set_ylabel('$y$ [$h^{-1}$Mpc]')
@@ -36,7 +35,7 @@ def plot_grid_with_true_centers(vote_threshold, voted_centers_xyzs, glxs_crtsn_c
         plt.show()
 
 
-def plot_expected_vs_observed(observed_grid, expected_grid, glxs_crtsn_coords, N_true_centers, lower_bound, upper_bound, diagonal=False, style='density', savename='graphs/exp_vs_obs.jpeg'):
+def plot_expected_vs_observed(observed_grid, expected_grid, galaxies_cartesian_coords, N_true_centers, lower_bound, upper_bound, diagonal=False, style='density', savename='graphs/exp_vs_obs.jpeg'):
     flat_obs = np.ravel(observed_grid)
     flat_exp = np.ravel(expected_grid)
 
@@ -55,7 +54,7 @@ def plot_expected_vs_observed(observed_grid, expected_grid, glxs_crtsn_coords, N
     plt.xlabel("$N$_${observed}$")
     plt.ylabel("$N$_${expected}$")
     plt.title('Number of expected versus observed voters for catalog with {} true centers'.format(N_true_centers))
-    # true_centers = glxs_crtsn_coords[:N_true_centers].T
+    # true_centers = galaxies_cartesian_coords[:N_true_centers].T
     # true_centers_indices = np.array([[np.ceil((true_centers[i, j] - true_centers[i].min()) / grid_spacing) for j in range(len(true_centers[i]))] for i in range(len(true_centers))], dtype=int).T
     # true_centers_observed_grid = np.array([observed_grid[index_tuple[0], index_tuple[1], index_tuple[2]] for index_tuple in true_centers_indices])
     # true_centers_expected_grid = np.array([expected_grid[index_tuple[0], index_tuple[1], index_tuple[2]] for index_tuple in true_centers_indices])
