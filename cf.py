@@ -5,6 +5,7 @@ from astropy.io import fits
 from scipy import integrate
 from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.signal import fftconvolve
+from scipy.stats import multivariate_normal
 from argparse import ArgumentParser
 from skimage.feature import blob_dog
 from plot import *
@@ -72,7 +73,7 @@ def cartesian2sky(xs: np.array, ys: np.array, zs: np.array) -> (np.array, np.arr
     return ra, dec, redshift, radii
 
 
-def kernel(bao_radius: int, grid_spacing: int, additional_thickness=0, show_kernel: bool = False) -> np.ndarray:
+def kernel(bao_radius: float, grid_spacing: int, additional_thickness=0, show_kernel: bool = False) -> np.ndarray:
     # this is the number of bins in each dimension axis
     kernel_bin_count = int(np.ceil(2 * bao_radius / grid_spacing))
 
@@ -94,6 +95,16 @@ def kernel(bao_radius: int, grid_spacing: int, additional_thickness=0, show_kern
                              for j in range(kernel_bin_count)]
                             for k in range(kernel_bin_count)])
 
+    # TODO: implement gaussian kernel
+    # , gaussian_fit: bool = false, mu: float, sigma: float
+    # if gaussian_fit:
+    #     kernel_grid = np.array([[[if (np.linalg.norm(np.array([i, j, k]) - kernel_center) >= inscribed_r_idx_units_floor - additional_thickness
+    #                                   and np.linalg.norm(np.array([i, j, k]) - kernel_center) < inscribed_r_idx_units_ceil + additional_thickness)
+    #                               else 0
+    #                               for i in range(kernel_bin_count)]
+    #                              for j in range(kernel_bin_count)]
+    #                             for k in range(kernel_bin_count)])
+
     # these are just sanity checks
     print('Kernel constructed successfully...')
     print('Number of kernel bins containing spherical surface:', len(kernel_grid[kernel_grid == 1]))
@@ -110,7 +121,7 @@ def kernel(bao_radius: int, grid_spacing: int, additional_thickness=0, show_kern
     return kernel_grid
 
 
-def single_radius_vote(filename: str, radius: int, save: bool = False, savename: str = 'saves/saved', plot: bool = False) -> (np.ndarray, list, np.ndarray):
+def single_radius_vote(filename: str, radius: float, save: bool = False, savename: str = 'saves/saved', plot: bool = False) -> (np.ndarray, list, np.ndarray):
     # gets sky data and transforms them to cartesian
     ra, dec, redshift = load_data(filename)
     xyzs = sky2cartesian(ra, dec, redshift)  # this returns (xs, ys, zs) as a tuple ready for unpacking
@@ -310,8 +321,7 @@ def significance(observed_grid: np.ndarray, expected_grid: np.ndarray, expected_
 
 
 def blob(grid: np.ndarray, bin_centers_xyzs: tuple, galaxies_cartesian_coords: np.ndarray, min_sigma_: float = 10., max_sigma_: float = 50., overlap_: float = 0.05, save: bool = False, savename: str = 'saves/saved', plot: bool = False) -> (list, np.ndarray):
-    blob_grid_indices = blob_dog(grid, min_sigma=min_sigma_, max_sigma=max_sigma_, overlap=overlap_)  # TODO: experiment with overlap
-    # print(blobs_indices)
+    blob_grid_indices = blob_dog(grid, min_sigma=min_sigma_, max_sigma=max_sigma_, overlap=overlap_)
     blob_centers_xyzs = np.array(blob_grid_indices.T, dtype=int)
     blob_centers_xs, blob_centers_ys, blob_centers_zs = blob_centers_xyzs[0], blob_centers_xyzs[1], blob_centers_xyzs[2]
     bin_centers_xs, bin_centers_ys, bin_centers_zs = bin_centers_xyzs[0], bin_centers_xyzs[1], bin_centers_xyzs[2]
@@ -347,6 +357,18 @@ def refine_grid(blob_cartesian_coords, galaxies_cartesian_coords, radius, paddin
 
         # significance grid and blobbing procedure
         finer_significance_grid = significance(finer_observed_grid, finer_expected_grid)
+        print('Finer sig grid max:', finer_significance_grid.max(), 'at position:', np.unravel_index(finer_significance_grid.argmax(), finer_significance_grid.shape))
+        # TODO: take a smaller portion of the significance grid, take for example 1/3 side sig grid centered at the bao center
+        sig_grid_x, sig_grid_y, sig_grid_z = finer_significance_grid.shape[0], finer_significance_grid.shape[1], finer_significance_grid.shape[2]
+        print('sig_grid_x:', sig_grid_x)
+        finer_significance_grid = finer_significance_grid[int(1. / 3. * sig_grid_x):int(2. / 3. * sig_grid_x), int(1. / 3. * sig_grid_y):int(2. / 3. * sig_grid_y), int(1. / 3. * sig_grid_z):int(2. / 3. * sig_grid_z)]
+        print('finer_significance_grid max:', finer_significance_grid.max())
+        print('finer_significance_grid shape:', finer_significance_grid.shape)
+        # do the same for the finer bin edges
+        bin_edges_x, bin_edges_y, bin_edges_z = len(finer_bin_centers_edges[0]), len(finer_bin_centers_edges[1]), len(finer_bin_centers_edges[2])
+        print('bin_edges_x:', bin_edges_x)
+        finer_bin_centers_edges = (finer_bin_centers_edges[0][int(1. / 3. * bin_edges_x):int(2. / 3. * bin_edges_x)], finer_bin_centers_edges[1][int(1. / 3. * bin_edges_y):int(2. / 3. * bin_edges_y)], finer_bin_centers_edges[2][int(1. / 3. * bin_edges_z):int(2. / 3. * bin_edges_z)])
+        print('finer_bin_centers_edges x length:', len(finer_bin_centers_edges[0]))
         blob_grid_indices, blob_cartesian_coords = blob(finer_significance_grid, finer_bin_centers_edges, galaxies_cartesian_coords)
 
         # grab highest significance blob
@@ -357,8 +379,8 @@ def refine_grid(blob_cartesian_coords, galaxies_cartesian_coords, radius, paddin
             finer_coords.append(blob_cartesian_coords[np.argmax(max_significance_blob)])
 
     finer_coords = np.array(finer_coords).T
-    print(finer_coords)
-    print(finer_coords.shape)
+    # print(finer_coords)
+    # print(finer_coords.shape)
     plot_grid_with_true_centers(finer_coords, galaxies_cartesian_coords, 83, showplot=True)
 
 
