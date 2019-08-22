@@ -358,7 +358,6 @@ def refine(blob_x, blob_y, blob_z):
     bin_edges_x, bin_edges_y, bin_edges_z = len(finer_bin_centers_edges[0]), len(finer_bin_centers_edges[1]), len(finer_bin_centers_edges[2])
     finer_bin_centers_edges = (finer_bin_centers_edges[0][int(1. / 3. * bin_edges_x):int(2. / 3. * bin_edges_x)], finer_bin_centers_edges[1][int(1. / 3. * bin_edges_y):int(2. / 3. * bin_edges_y)], finer_bin_centers_edges[2][int(1. / 3. * bin_edges_z):int(2. / 3. * bin_edges_z)])
     finer_blob_grid_indices, finer_blob_cartesian_coords = blob(finer_significance_grid, finer_bin_centers_edges, galaxies_cartesian_coords)
-    print(finer_blob_cartesian_coords)
 
     # grab highest significance blob if there are any blobs
     if len(finer_blob_grid_indices) > 0:
