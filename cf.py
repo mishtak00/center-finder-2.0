@@ -127,6 +127,12 @@ def vote(filename: str, radius: float, save: bool = False, savename: str = 'save
 		print('Histogramming completed successfully...')
 		print('Density grid shape:', density_grid.shape)
 
+	# subtracts the background
+	background, _ = project_and_sample(density_grid, observed_grid_edges, printout=printout)
+	# TODO: we have negative values here after the subtraction, check that this is okay
+	density_grid -= background
+	density_grid[density_grid < 0.] = 0.
+
 	# gets kernel
 	kernel_grid = kernel(radius, grid_spacing)
 
@@ -147,9 +153,9 @@ def vote(filename: str, radius: float, save: bool = False, savename: str = 'save
 		np.save(savename + "_obs_grid.npy", observed_grid)
 
 	if plot:
-		vote_threshold_ = 60
+		vote_threshold_ = 50
 		voted_centers_coords = (observed_grid_edges[i][np.where(observed_grid >= vote_threshold_)[i]] for i in range(len(observed_grid_edges)))
-		plot_grid_with_true_centers(voted_centers_coords, galaxies_cartesian_coords, N_true_centers, vote_threshold=vote_threshold_, savename=filename.split('.')[0] + '.png')
+		plot_grid_with_true_centers(voted_centers_coords, galaxies_cartesian_coords, 78, vote_threshold=vote_threshold_, savename=filename.split('.')[0] + '.png')
 
 	return observed_grid, observed_grid_edges, galaxies_cartesian_coords
 
@@ -234,7 +240,7 @@ def project_and_sample(observed_grid: np.ndarray, observed_grid_edges: list, ref
 		print('Total number of votes:', N_tot)
 
 	# get volume adjustment grid, the differentials in sky coordinate dimensions and the number of bins in each dimension
-	vol_adjust_ratio_grid, d_r, d_alpha, d_delta, N_bins_r, N_bins_alpha, N_bins_delta = volume_adjustment(bin_centers_radii, bin_centers_ra, bin_centers_dec, observed_grid.shape)
+	vol_adjust_ratio_grid, d_r, d_alpha, d_delta, N_bins_r, N_bins_alpha, N_bins_delta = volume_adjustment(bin_centers_radii, bin_centers_ra, bin_centers_dec, observed_grid.shape, printout=printout)
 
 	# alpha-delta and z counts
 	N_bins_x, N_bins_y, N_bins_z = observed_grid.shape[0], observed_grid.shape[1], observed_grid.shape[2]
