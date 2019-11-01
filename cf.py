@@ -401,15 +401,15 @@ def parallel_refine(blob_cartesian_coords, galaxies_cartesian_coords, radius, pa
 	return finer_coords
 
 
-def radial_scan(r_min: float, r_max: float, step: float, file_: str, refine: bool = False, save__: bool = False, savename__: str = 'saves/saved', printout__: bool = False):
+def radial_scan(r_min: float, r_max: float, step: float, file_: str, refine: bool = False, save: bool = False, savename: str = 'saves/saved', printout: bool = False):
 	for r in np.arange(r_min, r_max, step):
-		observed_grid, observed_grid_edges, galaxies_cartesian_coords = vote(file_, r, save=save__, savename=savename__, printout=printout__)
-		expected_grid, bin_centers_edges = project_and_sample(observed_grid, observed_grid_edges, save=save__, savename=savename__, printout=printout__)
-		significance_grid = significance(observed_grid, expected_grid, expected_votes_threshold=8., save=save__, savename=savename__, printout=printout__)
-		blob_grid_indices, blob_cartesian_coords = blob(significance_grid, bin_centers_edges, galaxies_cartesian_coords, save=save__, savename=savename__, printout=printout__)
+		observed_grid, observed_grid_edges, galaxies_cartesian_coords = vote(file_, r, save=save, savename=savename, printout=printout)
+		expected_grid, bin_centers_edges = project_and_sample(observed_grid, observed_grid_edges, save=save, savename=savename, printout=printout)
+		significance_grid = significance(observed_grid, expected_grid, expected_votes_threshold=8., save=save, savename=savename, printout=printout)
+		blob_grid_indices, blob_cartesian_coords = blob(significance_grid, bin_centers_edges, galaxies_cartesian_coords, save=save, savename=savename, printout=printout)
 		
 		if (refine):
-			finer_coords = parallel_refine(blob_cartesian_coords, galaxies_cartesian_coords, r, save=save__, printout=printout__)
+			finer_coords = parallel_refine(blob_cartesian_coords, galaxies_cartesian_coords, r, save=save, printout=printout)
 			# TODO: output is just a printout of the number of centers found now, may change to saved output later
 			print(r, finer_coords.shape[1])
 
@@ -440,9 +440,9 @@ def main():
 
 	if args.radial_scan:
 		if args.refinement:
-			radial_scan(90.5, 120.5, 2.5, args.file, refine=True, save__=args.save, savename__=savename_, printout__=args.printout)
+			radial_scan(90.5, 121., 2.5, args.file, refine=True, save=args.save, savename=savename_, printout=args.printout)
 		else:
-			radial_scan(90.5, 120.5, 2.5, args.file, save__=args.save, savename__=savename_, printout__=args.printout)
+			radial_scan(90.5, 121., 2.5, args.file, save=args.save, savename=savename_, printout=args.printout)
 
 
 if __name__ == '__main__':
