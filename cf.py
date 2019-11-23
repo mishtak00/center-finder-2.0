@@ -190,7 +190,7 @@ def volume_adjustment(bin_centers_radii: np.array, bin_centers_ra: np.array, bin
 
 	# delta
 	delta_delta = np.deg2rad(bin_centers_dec.max() - bin_centers_dec.min())
-	N_bins_delta = int(np.ceil((delta_delta * mid_r / 2) / grid_spacing))
+	N_bins_delta = int(np.ceil((delta_delta * mid_r) / grid_spacing))
 	d_delta = delta_delta / N_bins_delta
 	cos_delta = np.cos(np.deg2rad(bin_centers_dec))
 
@@ -436,7 +436,7 @@ def main():
 		observed_grid, observed_grid_edges, galaxies_cartesian_coords = vote(args.file, bao_radius, save=args.save, savename=savename_, printout=args.printout)
 		expected_grid, bin_centers_edges = project_and_sample(observed_grid, observed_grid_edges, save=args.save, savename=savename_, printout=args.printout)
 		significance_grid = significance(observed_grid, expected_grid, save=args.save, savename=savename_, printout=args.printout)
-		blob_grid_indices, blob_cartesian_coords = blob(significance_grid, bin_centers_edges, galaxies_cartesian_coords, save=args.save, savename=savename_, printout=args.printout)
+		blob_grid_indices, blob_cartesian_coords = blob(significance_grid, bin_centers_edges, galaxies_cartesian_coords, save=args.save, savename=savename_, printout=args.printout, plot=True)
 		if (args.refinement):
 			parallel_refine(blob_cartesian_coords, galaxies_cartesian_coords, bao_radius, save=args.save, printout=args.printout)
 
