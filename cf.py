@@ -182,7 +182,6 @@ def volume_adjustment(bin_centers_radii: np.array, bin_centers_ra: np.array, bin
 	d_r = grid_spacing
 	r_sqr = bin_centers_radii ** 2
 
-	# TODO: CHECK THAT THE RADIUS AT WHICH THE N_BINS ARE COMPUTED IS CORRECT
 	# alpha
 	delta_alpha = np.deg2rad(bin_centers_ra.max() - bin_centers_ra.min())
 	N_bins_alpha = int(np.ceil((delta_alpha * mid_r) / grid_spacing))
