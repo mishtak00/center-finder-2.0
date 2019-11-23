@@ -114,7 +114,7 @@ def kernel(bao_radius: float, grid_spacing: float, additional_thickness: float =
 	return kernel_grid
 
 
-def vote(filename: str, radius: float, save: bool = False, savename: str = 'saves/saved', plot: bool = False, printout: bool = False) -> (np.ndarray, list, np.ndarray):
+def vote(filename: str, radius: float, background_subtract: bool = False, save: bool = False, savename: str = 'saves/saved', plot: bool = False, printout: bool = False) -> (np.ndarray, list, np.ndarray):
 	# gets sky data and transforms them to cartesian
 	ra, dec, redshift = load_data(filename)
 	xyzs = sky2cartesian(ra, dec, redshift)
@@ -128,10 +128,11 @@ def vote(filename: str, radius: float, save: bool = False, savename: str = 'save
 		print('Density grid shape:', density_grid.shape)
 
 	# subtracts the background
-	background, _ = project_and_sample(density_grid, observed_grid_edges, printout=printout)
-	# TODO: we have negative values here after the subtraction, check that this is okay
-	density_grid -= background
-	density_grid[density_grid < 0.] = 0.
+	if background_subtract:
+		background, _ = project_and_sample(density_grid, observed_grid_edges, printout=printout)
+		# TODO: we have negative values here after the subtraction, check that this is okay
+		density_grid -= background
+		density_grid[density_grid < 0.] = 0.
 
 	# gets kernel
 	kernel_grid = kernel(radius, grid_spacing)
@@ -181,9 +182,10 @@ def volume_adjustment(bin_centers_radii: np.array, bin_centers_ra: np.array, bin
 	d_r = grid_spacing
 	r_sqr = bin_centers_radii ** 2
 
+	# TODO: CHECK THAT THE RADIUS AT WHICH THE N_BINS ARE COMPUTED IS CORRECT
 	# alpha
 	delta_alpha = np.deg2rad(bin_centers_ra.max() - bin_centers_ra.min())
-	N_bins_alpha = int(np.ceil((delta_alpha * mid_r / 2) / grid_spacing))
+	N_bins_alpha = int(np.ceil((delta_alpha * mid_r) / grid_spacing))
 	d_alpha = delta_alpha / N_bins_alpha
 
 	# delta
